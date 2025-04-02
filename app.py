@@ -75,6 +75,24 @@ def get_cves_modified():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+@app.route("/cves/search", methods=["GET"])
+def search_cves_by_description():
+    try:
+        keyword = request.args.get("keyword", "").strip()
+        if not keyword:
+            return jsonify({"error": "Keyword is required"}), 400
+
+        query = {
+            "description": {"$regex": keyword, "$options": "i"}  # Case-insensitive search
+        }
+
+        cves = list(collection.find(query, {"_id": 0}))  # Exclude MongoDB "_id"
+        return jsonify(cves)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # Run Flask App
 if __name__ == "__main__":
     app.run(debug=True)
