@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request
 from pymongo import MongoClient
+from datetime import datetime,timedelta
 
 app = Flask(__name__)
 
@@ -42,7 +43,38 @@ def get_filtered_cves():
     cves = list(collection.find(query, {"_id": 0}))  # Exclude MongoDB's "_id" field
     return jsonify(cves)
 
+@app.route("/cves/year/<int:year>", methods=["GET"])
+def get_cves_by_year(year):
+    start_date = datetime(year, 1, 1)
+    end_date = datetime(year + 1, 1, 1)
 
+    query = {
+        "publishedDate": {
+            "$gte": start_date.isoformat(),
+            "$lt": end_date.isoformat(),
+        }
+    }
+    
+    cves = list(collection.find(query, {"_id": 0}))  # Exclude MongoDB "_id"
+    return jsonify(cves)
+@app.route("/cves/modified", methods=["GET"])
+def get_cves_modified():
+    try:
+        days = int(request.args.get("days", 7))  # Default to last 7 days if not provided
+        today = datetime.utcnow()
+        start_date = today - timedelta(days=days)
+
+        query = {
+            "lastModifiedDate": {
+                "$gte": start_date.isoformat()
+            }
+        }
+
+        cves = list(collection.find(query, {"_id": 0}))  # Exclude MongoDB "_id"
+        return jsonify(cves)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 # Run Flask App
 if __name__ == "__main__":
     app.run(debug=True)
