@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CVE Viewer</title>
+    <script>
+        let currentPage = 1;
+        let resultsPerPage = 10; // Default value
+
+        function fetchCVEList() {
+            fetch(`http://127.0.0.1:5000/cves?page=${currentPage}&limit=${resultsPerPage}`)
+                .then(response => response.json())
+                .then(data => {
+                    console.log("Received Data:", data); // Debugging Log
+                    if (!data.cves || data.cves.length === 0) {
+                        console.error("No CVE records found!");
+                        document.getElementById("cveTableBody").innerHTML = "<tr><td colspan='3'>No records found</td></tr>";
+                        return;
+                    }
+                    document.getElementById("totalRecords").innerText = `Total Records: ${data.total}`;
+                    renderTable(data.cves);
+                })
+                .catch(error => console.error("Error fetching CVEs:", error));
+        }
+
+        function renderTable(cves) {
+            let tableBody = document.getElementById("cveTableBody");
+            tableBody.innerHTML = "";
+
+            cves.forEach(cve => {
+                let row = document.createElement("tr");
+                row.innerHTML = `
+                    <td>${cve.id}</td>
+                    <td>${cve.publishedDate}</td>
+                    <td>${cve.baseScore}</td>
+                `;
+                row.onclick = () => {
+                    window.location.href = `cve_detail.html?id=${cve.id}`;
+                };
+                tableBody.appendChild(row);
+            });
+        }
+
+        function updateResultsPerPage() {
+            resultsPerPage = document.getElementById("resultsPerPage").value;
+            fetchCVEList();
+        }
+
+        window.onload = fetchCVEList;
+    </script>
+</head>
+<body>
+    <h2>CVE List</h2>
+    <p id="totalRecords">Total Records: 0</p>
+
+    <label for="resultsPerPage">Results Per Page:</label>
+    <select id="resultsPerPage" onchange="updateResultsPerPage()">
+        <option value="10">10</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+    </select>
+
+    <table border="1">
+        <thead>
+            <tr>
+                <th>CVE ID</th>
+                <th>Published Date</th>
+                <th>CVSS Score</th>
+            </tr>
+        </thead>
+        <tbody id="cveTableBody"></tbody>
+    </table>
+</body>
+</html>
