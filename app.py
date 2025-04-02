@@ -87,12 +87,24 @@ def search_cves_by_description():
         limit = int(request.args.get("limit", 10))  # Default to 10 results per page
         skip = (page - 1) * limit  # Calculate how many documents to skip
 
-        query = {
-            "description": {"$regex": keyword, "$options": "i"}  # Case-insensitive search
-        }
+        sort_field = request.args.get("sort", "publishedDate")  # Default sorting field
+        sort_order = request.args.get("order", "desc").lower()  # Default: descending
+
+        query = {"description": {"$regex": keyword, "$options": "i"}}
 
         total_count = collection.count_documents(query)  # Count total matching CVEs
-        cves = list(collection.find(query, {"_id": 0}).skip(skip).limit(limit))  # Apply pagination
+
+        # Validate sort field and set sorting order
+        valid_sort_fields = ["baseScore", "publishedDate", "lastModifiedDate"]
+        if sort_field not in valid_sort_fields:
+            return jsonify({"error": f"Invalid sort field. Choose from {valid_sort_fields}"}), 400
+
+        sort_direction = -1 if sort_order == "desc" else 1  # -1 = descending, 1 = ascending
+
+        cves = list(collection.find(query, {"_id": 0})
+                    .sort(sort_field, sort_direction)  # Apply sorting
+                    .skip(skip)
+                    .limit(limit))
 
         return jsonify({
             "page": page,
@@ -104,6 +116,7 @@ def search_cves_by_description():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 
 # Run Flask App
