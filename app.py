@@ -1,8 +1,11 @@
 from flask import Flask, jsonify, request
 from pymongo import MongoClient
 from datetime import datetime,timedelta
+from bson import ObjectId
+from flask_cors import CORS 
 
 app = Flask(__name__)
+CORS(app)
 
 # Connect to Local MongoDB
 client = MongoClient("mongodb://localhost:27017/")
@@ -14,19 +17,32 @@ collection = db["cves"]
 def home():
     return jsonify({"message": "CVE API is running!"})
 
-# Fetch All CVEs
-@app.route("/cves", methods=["GET"])
-def get_all_cves():
-    cves = list(collection.find({}, {"_id": 0}))  # Exclude MongoDB's "_id" field
-    return jsonify(cves)
+# @app.route('/cves/all', methods=['GET'])
+# def get_all_cves():
+#     # Assuming you use MongoDB
+#     cves = list(db.cve_collection.find({}, {"_id": 0}))  # Exclude ObjectId
+#     return jsonify(cves)
+
+app.route("/cves/<cve_id>", methods=["GET"])
+def get_cve(cve_id):
+    cve = collection.find_one({"id": cve_id})  # Ensure ID matches
+    if not cve:
+        return jsonify({"error": "No such record found"}), 404
+    cve["_id"] = str(cve["_id"])  # Convert ObjectId to string
+    return jsonify(cve)
 
 # Fetch CVE by ID
-@app.route("/cve/<cve_id>", methods=["GET"])
-def get_cve_by_id(cve_id):
-    cve = collection.find_one({"id": cve_id}, {"_id": 0})
-    if cve:
-        return jsonify(cve)
-    return jsonify({"error": "CVE not found"}), 404
+@app.route("/cves/<cve_id>", methods=["GET"])
+def get_cve(cve_id):
+    cve_record = collection.find_one({"cve.CVE_data_meta.ID": cve_id})
+
+    if not cve_record:
+        return jsonify({"error": "No such record found"}), 404
+
+    # Convert ObjectId to string (fix JSON serialization error)
+    cve_record["_id"] = str(cve_record["_id"])
+
+    return jsonify(cve_record)
 
 # Fetch CVEs with optional filtering by CVSS score
 @app.route("/cves", methods=["GET"])
@@ -36,45 +52,56 @@ def get_filtered_cves():
 
     query = {}
     if min_score is not None:
-        query["baseScore"] = {"$gte": min_score}  # CVSS score should be >= min_score
+        query["baseScore"] = {"$gte": min_score}
     if max_score is not None:
-        query["baseScore"]["$lte"] = max_score if "baseScore" in query else {"$lte": max_score}
+        if "baseScore" in query:
+            query["baseScore"]["$lte"] = max_score
+        else:
+            query["baseScore"] = {"$lte": max_score}
 
-    cves = list(collection.find(query, {"_id": 0}))  # Exclude MongoDB's "_id" field
+    cves = list(collection.find(query))
+    for cve in cves:
+        cve["_id"] = str(cve["_id"])  # Convert ObjectId to string
+
     return jsonify(cves)
+
 
 @app.route("/cves/year/<int:year>", methods=["GET"])
 def get_cves_by_year(year):
-    start_date = datetime(year, 1, 1)
-    end_date = datetime(year + 1, 1, 1)
+    start_date = datetime(year, 1, 1).isoformat()
+    end_date = datetime(year + 1, 1, 1).isoformat()
 
     query = {
         "publishedDate": {
-            "$gte": start_date.isoformat(),
-            "$lt": end_date.isoformat(),
+            "$gte": start_date,
+            "$lt": end_date,
         }
     }
     
-    cves = list(collection.find(query, {"_id": 0}))  # Exclude MongoDB "_id"
+    cves = list(collection.find(query))
+    for cve in cves:
+        cve["_id"] = str(cve["_id"])  # Convert ObjectId to string
+
     return jsonify(cves)
+
 @app.route("/cves/modified", methods=["GET"])
 def get_cves_modified():
     try:
-        days = int(request.args.get("days", 7))  # Default to last 7 days if not provided
+        days = int(request.args.get("days", 7))  # Default to 7 days
         today = datetime.utcnow()
         start_date = today - timedelta(days=days)
 
-        query = {
-            "lastModifiedDate": {
-                "$gte": start_date.isoformat()
-            }
-        }
+        query = {"lastModifiedDate": {"$gte": start_date.isoformat()}}
 
-        cves = list(collection.find(query, {"_id": 0}))  # Exclude MongoDB "_id"
+        cves = list(collection.find(query))
+        for cve in cves:
+            cve["_id"] = str(cve["_id"])  # Convert ObjectId to string
+
         return jsonify(cves)
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
     
 @app.route("/cves/search", methods=["GET"])
 def search_cves_by_description():
@@ -116,6 +143,36 @@ def search_cves_by_description():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+@app.route("/cves/add", methods=["POST"])
+def add_cve():
+    try:
+        data = request.get_json()
+
+        # Validate required fields
+        required_fields = ["id", "baseScore", "description", "publishedDate", "lastModifiedDate"]
+        if not all(field in data for field in required_fields):
+            return jsonify({"error": "Missing required fields"}), 400
+
+        # Convert date fields to ISO format
+        try:
+            data["publishedDate"] = datetime.strptime(data["publishedDate"], "%Y-%m-%dT%H:%M:%S.%f")
+            data["lastModifiedDate"] = datetime.strptime(data["lastModifiedDate"], "%Y-%m-%dT%H:%M:%S.%f")
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Use ISO 8601 format: YYYY-MM-DDTHH:MM:SS.sss"}), 400
+
+        # Check if CVE ID already exists
+        if collection.find_one({"id": data["id"]}):
+            return jsonify({"error": "CVE ID already exists"}), 409  # Conflict error
+
+        # Insert into MongoDB
+        collection.insert_one(data)
+        return jsonify({"message": "CVE added successfully", "data": data}), 201
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 
 
 
