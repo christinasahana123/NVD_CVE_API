@@ -83,15 +83,28 @@ def search_cves_by_description():
         if not keyword:
             return jsonify({"error": "Keyword is required"}), 400
 
+        page = int(request.args.get("page", 1))  # Default to page 1
+        limit = int(request.args.get("limit", 10))  # Default to 10 results per page
+        skip = (page - 1) * limit  # Calculate how many documents to skip
+
         query = {
             "description": {"$regex": keyword, "$options": "i"}  # Case-insensitive search
         }
 
-        cves = list(collection.find(query, {"_id": 0}))  # Exclude MongoDB "_id"
-        return jsonify(cves)
+        total_count = collection.count_documents(query)  # Count total matching CVEs
+        cves = list(collection.find(query, {"_id": 0}).skip(skip).limit(limit))  # Apply pagination
+
+        return jsonify({
+            "page": page,
+            "limit": limit,
+            "total_results": total_count,
+            "total_pages": (total_count // limit) + (1 if total_count % limit > 0 else 0),
+            "data": cves
+        })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 # Run Flask App
 if __name__ == "__main__":
